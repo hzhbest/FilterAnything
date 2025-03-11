@@ -7,7 +7,7 @@
 // @description    自由选定页面元素进行筛选
 // @description:cn 自由选定页面元素进行筛选
 // @description:en Filter any page elements with your free choice
-// @version     1.1
+// @version     1.2
 // @run-at      document-end
 // @license     GNU GPLv3
 // ==/UserScript==
@@ -52,7 +52,7 @@
             background: #ffffffdf; color: #000; z-index: 1000002; font-size: 10pt;}
         #${_id}_toptipbox.show {display: block;}
         /* --目标元素样式-- */
-        .${_id} {outline: 3px solid #8b62e3  !important;}
+        .${_id} {outline: 3px solid #8b62e3 !important; outline-offset: -4px;}
         /* --筛选文本框样式-- */
         #${_id}_filterbox {position: fixed; padding: 4px; display: none; border: 1px solid #2a0f63; background: white;
             z-index: 1000003; height:36px; min-width: 200px;}
@@ -132,7 +132,7 @@
             case 1:                                     // 标记第一个元素状态→进入标记第二个元素阶段并筛选阶段
                 secondElem = findElemAt(mousePos);
                 parentElem = getMutualParent(firstElem, secondElem);
-                if (parentElem.tagName == "body") {     // 若共同父元素为body则退出
+                if (parentElem.tagName == "BODY") {     // 若共同父元素为body则退出
                     exitFinding('errtip');
                 } else {
                     startFiltering();
@@ -174,7 +174,7 @@
             prePelem = getMutualParent(preFelem, preSelem);
             clearTimeout(mouseMoveTO);
             if (!!secondMask) makeMaskClickable(secondMask, false);
-            if (prePelem.tagName !== "body") {
+            if (prePelem.tagName !== "BODY") {
                 if (!fisstMask) {
                     fisstMask = creaElemIn('div', document.body);
                     fisstMask.id = _id + '_maskt';
@@ -187,12 +187,17 @@
                     parentMask = creaElemIn('div', document.body);
                     parentMask.id = _id + '_maskp';
                 }
+                console.log('isCtrlPressed: ', isCtrlPressed);
                 if (!isCtrlPressed) {
                     preFelem = getElemUntil(preFelem, prePelem);
                     preSelem = getElemUntil(preSelem, prePelem);
                 } else {
+                    console.log('preFelem: ', preFelem);
+                    console.log('prePelem: ', prePelem);
                     filterLv = getLvCnt(preFelem, prePelem);        // 在按Ctrl 时第一个元素扩展后的元素为基础算层数
+                    console.log('filterLv: ', filterLv);
                     preSelem = getElemUntil(preSelem, prePelem, filterLv);
+                    console.log('preSelem: ', preSelem);
                 }
                 drawMask(getElemRect(preFelem), fisstMask);
                 drawMask(getElemRect(preSelem), secondMask);
@@ -214,12 +219,12 @@
 
     // ~ 查找两元素的最小共同父元素
     function getMutualParent(felem, selem) {
-        if (selem.tagName == "body") {
+        if (selem.tagName == "BODY") {
             return document.body;
         }
         var pelem = felem.parentNode;
         while (!pelem.contains(selem)) {
-            if (pelem.tagName == "body") {
+            if (pelem.tagName == "BODY") {
                 break;
             }
             pelem = pelem.parentNode;
@@ -597,6 +602,9 @@
     //~ - getTrueSize(node)
     //  输入元素，返回元素可见的四边屏幕坐标对象
     function getTrueSize(node) {
+        if (node.tagName == "BODY" || node.tagName == "HTML") {
+            return false;
+        }
         var p = node.getBoundingClientRect();
         return getFourSide(node, p);
     }
@@ -604,7 +612,11 @@
     // ~ getFourSide(node, p)
     // 递归获取当前节点不被上层元素遮挡的四边位置
     function getFourSide(node, p) {
-        var pp = node.parentNode.getBoundingClientRect();
+        var pn = node.parentNode;
+        if (pn.tagName == "BODY") {     // 到顶了
+            return p;
+        }
+        var pp = pn.getBoundingClientRect();
         var po = {
             left: p.left,
             right: p.right,
@@ -632,7 +644,7 @@
                 ok = false;
             }
             if (!ok) {
-                po = getFourSide(node.parentNode, po);
+                po = getFourSide(pn, po);
             }
             return po;
         }
