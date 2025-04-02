@@ -7,16 +7,20 @@
 // @description    自由选定页面元素进行筛选
 // @description:cn 自由选定页面元素进行筛选
 // @description:en Filter any page elements with your free choice
-// @version     1.2
+// @version     1.3
+// @require     https://cdnjs.cloudflare.com/ajax/libs/mark.js/8.11.1/mark.min.js
 // @run-at      document-end
 // @license     GNU GPLv3
 // ==/UserScript==
 
-// 操作方式：鼠标指针指向筛选目标【个体】，按下激活组合键，再指向另一个筛选目标【个体】，程序自动识别这两【个体】的同一【父级】，并弹出过滤框，按其中文本筛选【个体】
-// 高阶操作方式：按下激活组合键后，按住Ctrl 再点击的话，以两个体的共同父级为范围，筛选按下Ctrl 时首个个体的层级；
-// 术语：【目标】——待筛选的【个体】元素，数个个体位于同一【父级】的下一层，筛选时以【目标】为单位
+// 操作方式：鼠标指针指向筛选目标【个体】，按下激活组合键，再指向另一个筛选目标【个体】，程序自动识别这两【个体】的共同【父级】并显示半透明框标示，再次按下激活组合键或点击鼠标左键，将弹出过滤框，在其中输入则按其中文本筛选【个体】
+// 高阶操作方式：按下激活组合键、移动鼠标至确定【个体】后，按住Ctrl键，【个体】层级将在按住Ctrl键时保持固定，而【父级】范围则可随着鼠标移动扩大；【父级】范围合适的话，再点击鼠标左键，将以该范围【父级】筛选之前确定的【个体】；
+// 术语：【目标】——待筛选的【个体】元素，数个个体位于同一【父级】的下一层（高阶方式下可为多层），筛选时以【目标】为单位
 // 　　　【父级】——包含数个【目标】的元素，筛选时【父级】显示外框表明待筛选的范围
 // 　　　【标记】——鼠标指针指向某个区域并按下激活快捷键以记录【目标】包含的某元素，供识别同一【父级】
+
+// 若高亮筛选关键词的功能无效，请检查是否能访问上方 @require 的链接
+//   若无法访问，请尝试将链接替换为 https://cdn.jsdelivr.net/npm/mark.js@8.11.1/dist/mark.min.js
 
 // TODO 
 
@@ -24,10 +28,10 @@
 
     'use strict';
 
-    // SECTION - 自定义参数
+    // SECTION - 自定义设置项
     const activateKey = "C-M-a";    // 激活组合键（修饰键包括 C-：Ctrl； M-：Alt；最后一个字符为实键，大写则含Shift键）
-    const drawmask = true;          // 是否绘制遮罩
-    const usectrl = true;           // 使用Ctrl 扩展筛选范围
+    const drawmask = true;          // 是否绘制遮罩（建议开启）
+    const usectrl = true;           // 使用Ctrl 扩展筛选范围（高阶操作）
     // !SECTION
 
 
@@ -65,6 +69,7 @@
             pointer-events: none; }
         /* --被筛选元素样式-- */
         .${_id} *.___filtered {display: none !important;}
+        .${_id} .marked {background-color: #f3d6ac !important; color: #5f2f05 !important;}
     `;                        // 预设CSS
     const _txt = {
         menutxt: ['开始筛选', 'Start Filtering'],
@@ -75,6 +80,11 @@
             'No mutual parent element found or the parent element is the topmost element, program terminated'],
         exitip: ['已退出元素标记', 'Exit element recording'],
         filtip: ['输入即筛选，支持正则，Esc清空', 'Input to filter, support regex, Esc to clear']
+    };
+    const markingoptions = {
+        element: "span",
+        className: "marked",
+        acrossElements: true
     };
 
     //!SECTION
@@ -87,6 +97,7 @@
     var detectStatus = 0;   // 0:未激活 1:已标记首个元素 2:已标记第二个元素
     var firstElem, secondElem, parentElem, parentRect, filterLv = 0;
     var preFelem, preSelem, prePelem, filteredElems, fecnt;
+    var markercore;
     //!SECTION
 
 
@@ -320,7 +331,7 @@
 
     // SECTION - 元素过滤
 
-    // ~ 创建筛选文本框
+    // ~ 显示筛选文本框
     function showFilterInputBox() {
         if (detectStatus !== 2) {
             return;
@@ -347,6 +358,7 @@
         }
         filterbox.classList.add('show');
         filterinputbox.focus();
+        markercore = new Mark(parentElem);
         parentElem.classList.add('___FilterAnything');
         filteredElems = getElemsAtLv(parentElem, filterLv);
         fecnt = filteredElems.length;
@@ -371,6 +383,7 @@
     // ~ 随输入筛选
     function filterEvent() {
         clearTimeout(filterTO);
+        markercore.unmark();
         filterTO = setTimeout(filterElem, 500, filterinputbox.value);
     }
 
@@ -379,6 +392,7 @@
         var words = [], wordstmp = [];     // 关键词数组
         strf = strf.trim(); // 去除首尾空格
         var filteredcnt = 0;
+        var wordsformark;
         if (strf.length > 0) {
             var erg = strf.match(new RegExp("^ ?/(.+)/([gim]+)?$"));	// 判别是否正则表达式
             if (erg) {
@@ -392,6 +406,11 @@
                 wordstmp.forEach((word) => {
                     if (word) {
                         var t = word, ex = false;
+                        var oh = false;
+                        if (t.indexOf("<") == 0 && t.indexOf(">") == t.length - 1) {    // HTML匹配
+                            oh = true;
+                            t = t.slice(1, t.length - 2);
+                        }
                         if (t.indexOf("-") == 0) { // 拒绝符【-】；连字符【--】=“-”
                             if (t.indexOf("--") !== 0) {
                                 ex = true;
@@ -400,23 +419,36 @@
                         }
                         words.push({
                             text: t,
-                            exclude: ex
+                            exclude: ex,
+                            outerhtml: oh
                         });	//输出多元素数组，无正则对象
                     }
                 });
+                wordsformark = words.reduce((acc, cur) => {
+                    if (!(cur.exclude || cur.outerhtml)) {
+                        return acc + " " + cur.text;
+                    }
+                }, ''); // 保留普通文本关键词用于高亮
             }
             if (words.length > 0) {
                 filteredElems.forEach((elem) => {
                     const tc = elem.textContent;                    // 兼顾大写（word有大写则只匹配大写）
-                    // console.log('tc: ', tc);
                     const tcl = elem.textContent.toLowerCase();     // 同时匹配大小写（word仅小写则大小写都匹配）
+                    const toh = elem.outerHTML;                     // HTML源代码
+                    const tohl = elem.outerHTML.toLowerCase();      // HTML源代码小写
                     const ismatched = words.every((word) => {
                         if (word.exp) {
                             return word.exp.test(tc) || word.exp.test(tcl);
                         } else {
                             // console.log('tc.includes(word.text): ', tc.includes(word.text));
-                            var ism = tc.includes(word.text);
-                            var isml = tcl.includes(word.text);
+                            var ism, isml;
+                            if (!word.outerhtml) {
+                                ism = tc.includes(word.text);
+                                isml = tcl.includes(word.text);
+                            } else {
+                                ism = toh.includes(word.text);
+                                isml = tohl.includes(word.text);
+                            }
                             if (word.exclude) {
                                 return !(ism || isml);
                             } else {
@@ -428,6 +460,11 @@
                     if (ismatched) filteredcnt++;
                     // console.log('elem: ', elem);
                 });
+                if (words[0].exp) {
+                    markercore.markRegExp(words[0].exp, markingoptions);
+                } else {
+                    markercore.mark(wordsformark, markingoptions);
+                }
                 filtercountbox.innerHTML = `${filteredcnt}/${fecnt}`;
             }
         } else {
@@ -446,6 +483,7 @@
         filteredElems.forEach((elem) => {
             elem.classList.remove('___filtered');
         });
+        markercore.unmark();
         parentElem = null;
         firstElem = null;
         secondElem = null;
